@@ -344,12 +344,32 @@ app.post('/api/admin/products', upload.single('image'), (req, res) => {
   res.json({ id: productId });
 });
 
+app.put('/api/admin/products/:id', upload.single('image'), (req, res) => {
+  const { id } = req.params;
+  const { name, description, price, stock } = req.body;
+  const image_url = req.file ? `/uploads/${req.file.filename}` : undefined;
+
+  if (image_url) {
+    db.prepare('UPDATE products SET name = ?, description = ?, price = ?, stock = ?, image_url = ? WHERE id = ?')
+      .run(name, description, price, stock, image_url, id);
+  } else {
+    db.prepare('UPDATE products SET name = ?, description = ?, price = ?, stock = ? WHERE id = ?')
+      .run(name, description, price, stock, id);
+  }
+
+  const product = db.prepare('SELECT * FROM products WHERE id = ?').get(id);
+  io.emit('product-update', product);
+  res.json(product);
+});
+
 app.post('/api/admin/products/:id/stock', (req, res) => {
   const { id } = req.params;
   const { stock } = req.body;
 
   db.prepare('UPDATE products SET stock = ? WHERE id = ?').run(stock, id);
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(id);
+
+  io.emit('product-update', product);
 
   if (parseInt(stock) === 0) {
     io.emit('admin-notification', {

@@ -462,11 +462,22 @@ const AdminDashboard = () => {
   const [members, setMembers] = useState<Member[]>([]);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'map' | 'list' | 'products'>('map');
+  const [activeTab, setActiveTab] = useState<'map' | 'list' | 'products' | 'messages'>('map');
   const [broadcastMsg, setBroadcastMsg] = useState('');
   const [products, setProducts] = useState<Product[]>([]);
   const [newProduct, setNewProduct] = useState({ name: '', description: '', price: '', stock: '' });
   const [productImage, setProductImage] = useState<File | null>(null);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const path = location.pathname;
+    if (path === '/admin/members') setActiveTab('list');
+    else if (path === '/admin/products') setActiveTab('products');
+    else if (path === '/admin/messages') setActiveTab('messages');
+    else setActiveTab('map');
+  }, [location]);
 
   useEffect(() => {
     fetch('/api/members').then(res => res.json()).then(setMembers);
@@ -488,9 +499,20 @@ const AdminDashboard = () => {
       setMembers(prev => prev.map(m => m.id === updatedMember.id ? updatedMember : m));
     });
 
+    const cleanupProduct = socket.on('product-update', (updatedProduct: Product) => {
+      setProducts(prev => {
+        const exists = prev.find(p => p.id === updatedProduct.id);
+        if (exists) {
+          return prev.map(p => p.id === updatedProduct.id ? updatedProduct : p);
+        }
+        return [updatedProduct, ...prev];
+      });
+    });
+
     return () => {
       cleanupNotif();
       socket.off('location-update');
+      socket.off('product-update');
     };
   }, []);
 
@@ -514,6 +536,29 @@ const AdminDashboard = () => {
       setNewProduct({ name: '', description: '', price: '', stock: '' });
       setProductImage(null);
       alert('Product added successfully!');
+    }
+  };
+
+  const handleUpdateProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingProduct) return;
+
+    const formData = new FormData();
+    formData.append('name', editingProduct.name);
+    formData.append('description', editingProduct.description);
+    formData.append('price', editingProduct.price.toString());
+    formData.append('stock', editingProduct.stock.toString());
+    if (productImage) formData.append('image', productImage);
+
+    const res = await fetch(`/api/admin/products/${editingProduct.id}`, {
+      method: 'PUT',
+      body: formData,
+    });
+
+    if (res.ok) {
+      setEditingProduct(null);
+      setProductImage(null);
+      alert('Product updated successfully!');
     }
   };
 
@@ -567,22 +612,28 @@ const AdminDashboard = () => {
             <div className="lg:col-span-2 space-y-6">
               <div className="flex gap-2 p-1 bg-white w-fit rounded-xl shadow-sm border border-zinc-200">
                 <button 
-                  onClick={() => setActiveTab('map')}
+                  onClick={() => navigate('/admin')}
                   className={`px-6 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${activeTab === 'map' ? 'bg-[#1877F2] text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-50'}`}
                 >
                   <Globe size={18} /> Map
                 </button>
                 <button 
-                  onClick={() => setActiveTab('list')}
+                  onClick={() => navigate('/admin/members')}
                   className={`px-6 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${activeTab === 'list' ? 'bg-[#1877F2] text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-50'}`}
                 >
                   <Users size={18} /> Nodes
                 </button>
                 <button 
-                  onClick={() => setActiveTab('products')}
+                  onClick={() => navigate('/admin/products')}
                   className={`px-6 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${activeTab === 'products' ? 'bg-[#1877F2] text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-50'}`}
                 >
                   <ShoppingBag size={18} /> Inventory
+                </button>
+                <button 
+                  onClick={() => navigate('/admin/messages')}
+                  className={`px-6 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${activeTab === 'messages' ? 'bg-[#1877F2] text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-50'}`}
+                >
+                  <MessageSquare size={18} /> Broadcast
                 </button>
               </div>
 
@@ -642,7 +693,7 @@ const AdminDashboard = () => {
                     </tbody>
                   </table>
                 </div>
-              ) : (
+              ) : activeTab === 'products' ? (
                 <div className="space-y-6">
                   <div className="bg-white rounded-3xl p-6 border border-zinc-200 shadow-xl robot-glow">
                     <h2 className="font-bold mb-4 flex items-center gap-2 text-[#1877F2] uppercase tracking-widest tech-font">
@@ -692,7 +743,12 @@ const AdminDashboard = () => {
                           {product.image_url ? <img src={product.image_url} className="w-full h-full object-cover" /> : <Package className="w-full h-full p-6 text-zinc-300" />}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="font-bold truncate">{product.name}</div>
+                          <div className="flex justify-between items-start">
+                            <div className="font-bold truncate">{product.name}</div>
+                            <button onClick={() => setEditingProduct(product)} className="text-zinc-400 hover:text-[#1877F2]">
+                              <Edit size={16} />
+                            </button>
+                          </div>
                           <div className="text-xs text-zinc-500 mb-2">₱{product.price}</div>
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tech-font">Stock:</span>
@@ -709,31 +765,41 @@ const AdminDashboard = () => {
                     ))}
                   </div>
                 </div>
+              ) : (
+                <div className="bg-zinc-900 rounded-3xl p-6 text-white shadow-2xl robot-scan relative overflow-hidden h-[600px] flex flex-col">
+                  <h2 className="font-bold mb-4 flex items-center gap-2 text-emerald-400 uppercase tracking-widest tech-font">
+                    <Zap size={18} />
+                    Global Broadcast
+                  </h2>
+                  <div className="flex-1 flex flex-col justify-center items-center text-center space-y-6">
+                    <div className="w-32 h-32 bg-emerald-500/10 rounded-full flex items-center justify-center animate-pulse">
+                      <Send size={48} className="text-emerald-400" />
+                    </div>
+                    <p className="text-zinc-400 max-w-md">
+                      Send a high-priority message to all connected nodes. This will trigger an immediate alert on all member devices.
+                    </p>
+                    <div className="w-full max-w-lg space-y-4">
+                      <textarea 
+                        className="w-full bg-zinc-800 border border-zinc-700 rounded-2xl p-4 text-sm focus:ring-2 focus:ring-emerald-500 outline-none resize-none tech-font"
+                        rows={4}
+                        placeholder="Enter system-wide transmission..."
+                        value={broadcastMsg}
+                        onChange={e => setBroadcastMsg(e.target.value)}
+                      />
+                      <button 
+                        onClick={sendBroadcast}
+                        className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
+                      >
+                        <Send size={18} />
+                        Transmit to All Nodes
+                      </button>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
 
             <div className="space-y-6">
-              <div className="bg-zinc-900 rounded-3xl p-6 text-white shadow-2xl robot-scan relative overflow-hidden">
-                <h2 className="font-bold mb-4 flex items-center gap-2 text-emerald-400 uppercase tracking-widest tech-font">
-                  <Zap size={18} />
-                  Global Broadcast
-                </h2>
-                <textarea 
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-2xl p-4 text-sm focus:ring-2 focus:ring-emerald-500 outline-none mb-4 resize-none tech-font"
-                  rows={4}
-                  placeholder="Enter system-wide transmission..."
-                  value={broadcastMsg}
-                  onChange={e => setBroadcastMsg(e.target.value)}
-                />
-                <button 
-                  onClick={sendBroadcast}
-                  className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
-                >
-                  <Send size={18} />
-                  Transmit to All Nodes
-                </button>
-              </div>
-
               <div className="bg-white rounded-3xl p-6 border border-zinc-200 shadow-xl">
                 <h2 className="font-bold mb-4 flex items-center gap-2 text-[#1877F2] uppercase tracking-widest tech-font">
                   <Shield size={18} />
@@ -1311,7 +1377,7 @@ export default function App() {
           <Route path="/register" element={<RegistrationPage />} />
           <Route path="/login" element={<LoginPage onLogin={handleLogin} />} />
           
-          <Route path="/admin" element={
+          <Route path="/admin/*" element={
             user?.role === 'admin' ? <AdminDashboard /> : <Navigate to="/login" />
           } />
 
