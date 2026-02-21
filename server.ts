@@ -86,11 +86,15 @@ db.exec(`
   );
 `);
 
-// Seed Admin if not exists
+// Seed Admin if not exists or update password
 const adminExists = db.prepare('SELECT * FROM admins WHERE username = ?').get('admin');
+const hashedPassword = bcrypt.hashSync('admin123', 10);
+
 if (!adminExists) {
-  const hashedPassword = bcrypt.hashSync('admin123', 10);
   db.prepare('INSERT INTO admins (username, password) VALUES (?, ?)').run('admin', hashedPassword);
+} else {
+  // Ensure password is correct for development
+  db.prepare('UPDATE admins SET password = ? WHERE username = ?').run(hashedPassword, 'admin');
 }
 
 const app = express();
@@ -132,14 +136,20 @@ io.on('connection', (socket) => {
 app.post('/api/login', (req, res) => {
   const { email, password } = req.body;
   
-  // Try Admin first
-  const admin = db.prepare('SELECT * FROM admins WHERE username = ?').get(email);
+  // Try Admin first (allow username 'admin' or email 'admin@lccad.com')
+  let admin = db.prepare('SELECT * FROM admins WHERE username = ?').get(email);
+  
+  // If not found by username, try checking if it's the specific admin email
+  if (!admin && email === 'admin@lccad.com') {
+    admin = db.prepare('SELECT * FROM admins WHERE username = ?').get('admin');
+  }
+
   if (admin && bcrypt.compareSync(password, admin.password)) {
     const token = jwt.sign({ id: admin.id, role: 'admin' }, JWT_SECRET);
     return res.json({ token, user: { id: admin.id, username: admin.username, name: 'Admin', role: 'admin' } });
   }
 
-  // Try Member (using email as login, no password for demo as requested previously, but we can assume email is the unique ID)
+  // Try Member
   const member = db.prepare('SELECT * FROM members WHERE email = ?').get(email);
   if (member) {
     return res.json({ user: { ...member, role: 'member' } });
