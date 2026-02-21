@@ -185,6 +185,7 @@ const RoboticSidebar = ({ user }: { user: User }) => {
 
 const FacebookNavbar = ({ user, onLogout }: { user: User | null, onLogout: () => void }) => {
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const location = useLocation();
 
   return (
     <nav className="fixed top-0 left-0 right-0 h-14 bg-white border-b border-zinc-200 z-[1000] flex items-center justify-between px-4 shadow-sm robot-scan">
@@ -209,26 +210,33 @@ const FacebookNavbar = ({ user, onLogout }: { user: User | null, onLogout: () =>
           { icon: Store, to: '/shop' },
           { icon: Users, to: '/groups' },
           { icon: LayoutDashboard, to: '/admin', adminOnly: true },
-        ].filter(item => !item.adminOnly || user?.role === 'admin').map((item, i) => (
-          <Link 
-            key={i} 
-            to={item.to} 
-            className={`h-full px-10 flex items-center border-b-4 transition-colors border-transparent text-zinc-500 hover:bg-zinc-100 hover:rounded-lg`}
-          >
-            <item.icon size={24} />
-          </Link>
-        ))}
+        ].filter(item => !item.adminOnly || user?.role === 'admin').map((item, i) => {
+          const isActive = location.pathname === item.to;
+          return (
+            <Link 
+              key={i} 
+              to={item.to} 
+              className={`h-full px-10 flex items-center border-b-4 transition-all ${isActive ? 'border-[#1877F2] text-[#1877F2]' : 'border-transparent text-zinc-500 hover:bg-zinc-100 hover:rounded-lg'}`}
+            >
+              <item.icon size={24} className={isActive ? 'scale-110' : ''} />
+            </Link>
+          );
+        })}
       </div>
 
       <div className="flex items-center gap-2">
         {user ? (
           <>
             <div className="flex gap-2">
-              {[Menu, MessageCircle, Bell].map((Icon, i) => (
-                <button key={i} className="w-10 h-10 bg-zinc-100 rounded-full flex items-center justify-center text-zinc-900 hover:bg-zinc-200 transition-colors relative">
-                  <Icon size={20} />
-                </button>
-              ))}
+              <button className="w-10 h-10 bg-zinc-100 rounded-full flex items-center justify-center text-zinc-900 hover:bg-zinc-200 transition-colors relative">
+                <Menu size={20} />
+              </button>
+              <Link to="/messenger" className="w-10 h-10 bg-zinc-100 rounded-full flex items-center justify-center text-zinc-900 hover:bg-zinc-200 transition-colors relative">
+                <MessageCircle size={20} />
+              </Link>
+              <button className="w-10 h-10 bg-zinc-100 rounded-full flex items-center justify-center text-zinc-900 hover:bg-zinc-200 transition-colors relative">
+                <Bell size={20} />
+              </button>
               <div className="relative">
                 <button 
                   onClick={() => setShowUserMenu(!showUserMenu)}
@@ -1387,6 +1395,22 @@ export default function App() {
 
           <Route path="/messenger" element={
             user ? <MessengerPage user={user} /> : <Navigate to="/login" />
+          } />
+
+          <Route path="/watch" element={
+            <div className="pt-20 p-8 text-center ml-[72px]">
+              <Tv size={48} className="mx-auto text-zinc-300 mb-4" />
+              <h2 className="text-xl font-bold">LCCAD TV</h2>
+              <p className="text-zinc-500">Live streams and educational videos on climate change.</p>
+            </div>
+          } />
+
+          <Route path="/groups" element={
+            <div className="pt-20 p-8 text-center ml-[72px]">
+              <Users size={48} className="mx-auto text-zinc-300 mb-4" />
+              <h2 className="text-xl font-bold">LCCAD Groups</h2>
+              <p className="text-zinc-500">Join local community groups for climate action.</p>
+            </div>
           } />
           
           <Route path="/" element={
