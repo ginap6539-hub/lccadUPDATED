@@ -87,20 +87,39 @@ db.exec(`
 `);
 
 // Seed Admin if not exists or update password
-const adminExists = db.prepare('SELECT * FROM admins WHERE username = ?').get('admin');
 const hashedPassword = bcrypt.hashSync('admin123', 10);
 
-if (!adminExists) {
+// Ensure 'admin' user exists
+const adminUser = db.prepare('SELECT * FROM admins WHERE username = ?').get('admin');
+if (!adminUser) {
   db.prepare('INSERT INTO admins (username, password) VALUES (?, ?)').run('admin', hashedPassword);
 } else {
-  // Ensure password is correct for development
   db.prepare('UPDATE admins SET password = ? WHERE username = ?').run(hashedPassword, 'admin');
+}
+
+// Ensure 'admin@lccad.com' user exists (as a backup username)
+const adminEmailUser = db.prepare('SELECT * FROM admins WHERE username = ?').get('admin@lccad.com');
+if (!adminEmailUser) {
+  db.prepare('INSERT INTO admins (username, password) VALUES (?, ?)').run('admin@lccad.com', hashedPassword);
+} else {
+  db.prepare('UPDATE admins SET password = ? WHERE username = ?').run(hashedPassword, 'admin@lccad.com');
 }
 
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { origin: '*' }
+});
+
+// Enable CORS for Express
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    res.header('Access-Control-Allow-Methods', 'PUT, POST, PATCH, DELETE, GET');
+    return res.status(200).json({});
+  }
+  next();
 });
 
 app.use(express.json());
@@ -144,13 +163,14 @@ app.post('/api/login', (req, res) => {
   
   console.log(`Login attempt for: ${email}`);
   
-  // Try Admin first (allow username 'admin' or email 'admin@lccad.com')
-  // Case-insensitive check for the specific admin email
-  let admin = null;
-  if (email.toLowerCase() === 'admin@lccad.com' || email.toLowerCase() === 'admin') {
+  // Try Admin first
+  // We check if the email matches 'admin' or 'admin@lccad.com' directly in the DB
+  // Since we seeded both, a simple query should work.
+  let admin = db.prepare('SELECT * FROM admins WHERE username = ?').get(email);
+  
+  // Fallback: if they entered 'admin@lccad.com' but we only had 'admin' (handled by seeding, but good for safety)
+  if (!admin && (email === 'admin@lccad.com' || email === 'admin')) {
      admin = db.prepare('SELECT * FROM admins WHERE username = ?').get('admin');
-  } else {
-     admin = db.prepare('SELECT * FROM admins WHERE username = ?').get(email);
   }
 
   if (admin) {
