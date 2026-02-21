@@ -134,27 +134,45 @@ io.on('connection', (socket) => {
 
 // API Routes
 app.post('/api/login', (req, res) => {
-  const { email, password } = req.body;
+  let { email, password } = req.body;
   
-  // Try Admin first (allow username 'admin' or email 'admin@lccad.com')
-  let admin = db.prepare('SELECT * FROM admins WHERE username = ?').get(email);
-  
-  // If not found by username, try checking if it's the specific admin email
-  if (!admin && email === 'admin@lccad.com') {
-    admin = db.prepare('SELECT * FROM admins WHERE username = ?').get('admin');
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
   }
 
-  if (admin && bcrypt.compareSync(password, admin.password)) {
-    const token = jwt.sign({ id: admin.id, role: 'admin' }, JWT_SECRET);
-    return res.json({ token, user: { id: admin.id, username: admin.username, name: 'Admin', role: 'admin' } });
+  email = email.trim();
+  
+  console.log(`Login attempt for: ${email}`);
+  
+  // Try Admin first (allow username 'admin' or email 'admin@lccad.com')
+  // Case-insensitive check for the specific admin email
+  let admin = null;
+  if (email.toLowerCase() === 'admin@lccad.com' || email.toLowerCase() === 'admin') {
+     admin = db.prepare('SELECT * FROM admins WHERE username = ?').get('admin');
+  } else {
+     admin = db.prepare('SELECT * FROM admins WHERE username = ?').get(email);
+  }
+
+  if (admin) {
+    console.log('Admin found:', admin.username);
+    const match = bcrypt.compareSync(password, admin.password);
+    console.log('Password match:', match);
+    if (match) {
+      const token = jwt.sign({ id: admin.id, role: 'admin' }, JWT_SECRET);
+      return res.json({ token, user: { id: admin.id, username: admin.username, name: 'Admin', role: 'admin' } });
+    }
+  } else {
+    console.log('Admin not found');
   }
 
   // Try Member
   const member = db.prepare('SELECT * FROM members WHERE email = ?').get(email);
   if (member) {
+    console.log('Member found:', member.email);
     return res.json({ user: { ...member, role: 'member' } });
   }
 
+  console.log('Login failed');
   res.status(401).json({ error: 'Invalid credentials' });
 });
 
