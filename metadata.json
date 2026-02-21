@@ -1,0 +1,5 @@
+{
+  "name": "LCCAD Member Portal & Monitoring",
+  "description": "A comprehensive platform for member registration, real-time monitoring, social interaction, and e-commerce management for LCCAD.",
+  "requestFramePermissions": ["geolocation"]
+}
