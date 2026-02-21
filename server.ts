@@ -76,12 +76,18 @@ io.on('connection', (socket) => {
   });
 });
 
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', supabase: !!supabaseUrl, vercel: isVercel });
+});
+
 // API Routes
 app.post('/api/login', async (req, res) => {
   let { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
 
   email = email.trim();
+  console.log(`Login attempt: ${email}`);
   
   try {
     // Try Admin
@@ -92,18 +98,14 @@ app.post('/api/login', async (req, res) => {
       .maybeSingle();
 
     if (adminError) {
-      console.error('Supabase Admin Query Error:', adminError);
+      console.error('Admin query error:', adminError);
     }
 
-    if (admin) {
-      console.log('Admin match found for:', email);
+    if (admin && admin.password) {
       const match = bcrypt.compareSync(password, admin.password);
       if (match) {
-        console.log('Admin login successful');
         const token = jwt.sign({ id: admin.id, role: 'admin' }, JWT_SECRET);
         return res.json({ token, user: { id: admin.id, username: admin.username, name: 'Admin', role: 'admin' } });
-      } else {
-        console.log('Admin password mismatch');
       }
     }
 
@@ -115,11 +117,10 @@ app.post('/api/login', async (req, res) => {
       .maybeSingle();
 
     if (memberError) {
-      console.error('Supabase Member Query Error:', memberError);
+      console.error('Member query error:', memberError);
     }
 
     if (member) {
-      // Members in this app don't have passwords in the schema, they just login via email
       return res.json({ user: { ...member, role: 'member' } });
     }
 
@@ -140,11 +141,13 @@ app.post('/api/register', upload.single('photo'), async (req, res) => {
   const photo_url = req.file ? `/uploads/${req.file.filename}` : null;
 
   try {
-    const { data: existingMember } = await supabase
+    const { data: existingMember, error: checkError } = await supabase
       .from('members')
       .select('id')
       .eq('email', email)
       .maybeSingle();
+
+    if (checkError) console.error('Check email error:', checkError);
 
     if (existingMember) {
       return res.status(400).json({ error: 'Email already registered' });
@@ -160,20 +163,25 @@ app.post('/api/register', upload.single('photo'), async (req, res) => {
         training_creative_industries: training_creative_industries === 'true' ? 1 : 0
       }])
       .select()
-      .single();
+      .maybeSingle();
 
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase Insert Error:', error);
+      return res.status(400).json({ error: error.message });
+    }
 
-    io.emit('admin-notification', {
-      type: 'NEW_REGISTRATION',
-      message: `New member registered: ${name}`,
-      data: member
-    });
+    if (member) {
+      io.emit('admin-notification', {
+        type: 'NEW_REGISTRATION',
+        message: `New member registered: ${name}`,
+        data: member
+      });
+    }
 
     res.json({ success: true, member });
   } catch (error: any) {
     console.error('Registration error:', error);
-    res.status(500).json({ error: error.message || 'Registration failed' });
+    res.status(500).json({ error: 'Registration failed' });
   }
 });
 
@@ -190,7 +198,7 @@ app.post('/api/members/:id/profile', upload.single('photo'), async (req, res) =>
     .update(updateData)
     .eq('id', id)
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) return res.status(400).json({ error: error.message });
   res.json(member);
@@ -213,7 +221,7 @@ app.post('/api/members/:id/location', async (req, res) => {
     .update({ latitude, longitude, last_seen: new Date().toISOString() })
     .eq('id', id)
     .select()
-    .single();
+    .maybeSingle();
   if (error) return res.status(400).json({ error: error.message });
   io.emit('location-update', member);
   res.json({ success: true });
@@ -226,7 +234,7 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
     .from('posts')
     .insert([{ member_id, content, image_url }])
     .select('*, members(name)')
-    .single();
+    .maybeSingle();
   if (error) return res.status(400).json({ error: error.message });
   const formattedPost = { ...post, member_name: (post as any).members?.name };
   io.emit('new-post', formattedPost);
@@ -247,8 +255,8 @@ app.post('/api/posts/:id/react', async (req, res) => {
   const { id } = req.params;
   const { member_id, type } = req.body;
   await supabase.from('reactions').insert([{ post_id: id, member_id, type }]);
-  const { data: post } = await supabase.from('posts').select('*').eq('id', id).single();
-  const { data: member } = await supabase.from('members').select('*').eq('id', member_id).single();
+  const { data: post } = await supabase.from('posts').select('*').eq('id', id).maybeSingle();
+  const { data: member } = await supabase.from('members').select('*').eq('id', member_id).maybeSingle();
   if (post && member && post.member_id !== member_id) {
     io.to(`user-${post.member_id}`).emit('notification', {
       type: 'POST_REACTION',
@@ -272,16 +280,16 @@ app.post('/api/admin/products', upload.single('image'), async (req, res) => {
     .from('products')
     .insert([{ name, description, price, stock, image_url }])
     .select()
-    .single();
+    .maybeSingle();
   if (error) return res.status(400).json({ error: error.message });
-  if (parseInt(stock) === 0) {
+  if (product && parseInt(stock) === 0) {
     io.emit('admin-notification', {
       type: 'STOCK_ALERT',
       message: `CRITICAL: Product "${name}" is OUT OF STOCK!`,
       data: { productId: product.id, name }
     });
   }
-  res.json({ id: product.id });
+  res.json({ id: product?.id });
 });
 
 app.put('/api/admin/products/:id', upload.single('image'), async (req, res) => {
@@ -295,7 +303,7 @@ app.put('/api/admin/products/:id', upload.single('image'), async (req, res) => {
     .update(updateData)
     .eq('id', id)
     .select()
-    .single();
+    .maybeSingle();
   if (error) return res.status(400).json({ error: error.message });
   io.emit('product-update', product);
   res.json(product);
@@ -309,10 +317,10 @@ app.post('/api/admin/products/:id/stock', async (req, res) => {
     .update({ stock })
     .eq('id', id)
     .select()
-    .single();
+    .maybeSingle();
   if (error) return res.status(400).json({ error: error.message });
   io.emit('product-update', product);
-  if (parseInt(stock) === 0) {
+  if (product && parseInt(stock) === 0) {
     io.emit('admin-notification', {
       type: 'STOCK_ALERT',
       message: `CRITICAL: Product "${product.name}" is OUT OF STOCK!`,
@@ -339,7 +347,7 @@ app.post('/api/messages', async (req, res) => {
     .from('messages')
     .insert([{ sender_id, receiver_id, content }])
     .select()
-    .single();
+    .maybeSingle();
   if (error) return res.status(400).json({ error: error.message });
   if (receiver_id === 0) {
     io.emit('broadcast-message', message);
@@ -366,3 +374,5 @@ const PORT = 3000;
 httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
+
+export default app;
