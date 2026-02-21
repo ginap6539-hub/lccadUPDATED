@@ -75,14 +75,32 @@ CREATE TABLE IF NOT EXISTS notifications (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 8. Security: Enable Row Level Security (RLS)
+ALTER TABLE admins ENABLE ROW LEVEL SECURITY;
+ALTER TABLE members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+
+-- 9. Policies (Allowing the backend to function with the ANON key)
+-- NOTE: In a production environment, it is highly recommended to use the SERVICE_ROLE_KEY 
+-- on the backend to bypass RLS, and keep RLS restricted for the ANON key.
+-- These policies allow basic operations required for the app to function.
+
+CREATE POLICY "Allow all on admins" ON admins FOR ALL USING (true);
+CREATE POLICY "Allow all on members" ON members FOR ALL USING (true);
+CREATE POLICY "Allow all on posts" ON posts FOR ALL USING (true);
+CREATE POLICY "Allow all on reactions" ON reactions FOR ALL USING (true);
+CREATE POLICY "Allow all on products" ON products FOR ALL USING (true);
+CREATE POLICY "Allow all on messages" ON messages FOR ALL USING (true);
+CREATE POLICY "Allow all on notifications" ON notifications FOR ALL USING (true);
+
 -- Seed Admin User (Password: admin123)
+-- We use a fresh hash to ensure compatibility
+DELETE FROM admins WHERE username IN ('admin', 'admin@lccad.com');
 INSERT INTO admins (username, password)
 VALUES 
   ('admin', '$2b$10$NgVxRQ5z22T43Mlzs6xs0eCzIcAVbMaIgcvHIx6N3oIKunwc0.gf6'),
-  ('admin@lccad.com', '$2b$10$NgVxRQ5z22T43Mlzs6xs0eCzIcAVbMaIgcvHIx6N3oIKunwc0.gf6')
-ON CONFLICT (username) DO NOTHING;
-
--- Enable Row Level Security (RLS) - Optional, but recommended for Supabase
--- For this specific app structure where the backend handles everything, RLS might not be strictly necessary if you are just using the Postgres connection string.
--- However, if you plan to use Supabase Client on the frontend, you'll need policies.
--- For now, we'll leave RLS disabled or default to allow the service role (backend) full access.
+  ('admin@lccad.com', '$2b$10$NgVxRQ5z22T43Mlzs6xs0eCzIcAVbMaIgcvHIx6N3oIKunwc0.gf6');
