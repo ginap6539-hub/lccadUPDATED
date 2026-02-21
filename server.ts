@@ -164,11 +164,9 @@ app.post('/api/login', (req, res) => {
   console.log(`Login attempt for: ${email}`);
   
   // Try Admin first
-  // We check if the email matches 'admin' or 'admin@lccad.com' directly in the DB
-  // Since we seeded both, a simple query should work.
   let admin = db.prepare('SELECT * FROM admins WHERE username = ?').get(email);
   
-  // Fallback: if they entered 'admin@lccad.com' but we only had 'admin' (handled by seeding, but good for safety)
+  // Fallback for admin@lccad.com or admin username
   if (!admin && (email === 'admin@lccad.com' || email === 'admin')) {
      admin = db.prepare('SELECT * FROM admins WHERE username = ?').get('admin');
   }
@@ -180,6 +178,8 @@ app.post('/api/login', (req, res) => {
     if (match) {
       const token = jwt.sign({ id: admin.id, role: 'admin' }, JWT_SECRET);
       return res.json({ token, user: { id: admin.id, username: admin.username, name: 'Admin', role: 'admin' } });
+    } else {
+      console.log('Admin password incorrect');
     }
   } else {
     console.log('Admin not found');
@@ -192,17 +192,25 @@ app.post('/api/login', (req, res) => {
     return res.json({ user: { ...member, role: 'member' } });
   }
 
-  console.log('Login failed');
+  console.log('Login failed: No matching user found');
   res.status(401).json({ error: 'Invalid credentials' });
 });
 
 app.post('/api/register', upload.single('photo'), (req, res) => {
+  console.log('Registration attempt:', req.body);
   const {
     name, address, position, agency_lgu, province_region,
     mobile_number, email, website,
     training_climate_change, training_digitalization, training_creative_industries
   } = req.body;
   const photo_url = req.file ? `/uploads/${req.file.filename}` : null;
+
+  // Check if email already exists
+  const existingMember = db.prepare('SELECT id FROM members WHERE email = ?').get(email);
+  if (existingMember) {
+    console.log('Registration failed: Email already exists', email);
+    return res.status(400).json({ error: 'Email already registered. Please login.' });
+  }
 
   try {
     const result = db.prepare(`
@@ -222,6 +230,8 @@ app.post('/api/register', upload.single('photo'), (req, res) => {
     const memberId = result.lastInsertRowid;
     const member = db.prepare('SELECT * FROM members WHERE id = ?').get(memberId);
 
+    console.log('Registration successful:', member.name);
+
     io.emit('admin-notification', {
       type: 'NEW_REGISTRATION',
       message: `New member registered: ${name}`,
@@ -230,6 +240,7 @@ app.post('/api/register', upload.single('photo'), (req, res) => {
 
     res.json({ success: true, member });
   } catch (error: any) {
+    console.error('Registration error:', error);
     res.status(400).json({ error: error.message });
   }
 });

@@ -1132,14 +1132,18 @@ const RegistrationPage = () => {
         method: 'POST',
         body: data,
       });
+      const result = await res.json();
+      
       if (res.ok) {
         setStatus('success');
         setTimeout(() => navigate('/login'), 2000);
       } else {
         setStatus('error');
+        alert(result.error || 'Registration failed. Please try again.');
       }
     } catch (err) {
       setStatus('error');
+      alert('An unexpected error occurred.');
     }
   };
 
