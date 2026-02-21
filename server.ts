@@ -41,7 +41,32 @@ db.exec(`
     last_seen DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+`);
 
+// Add missing columns if they don't exist (for existing databases)
+try {
+  db.prepare('ALTER TABLE members ADD COLUMN photo_url TEXT').run();
+} catch (e) {}
+try {
+  db.prepare('ALTER TABLE members ADD COLUMN training_climate_change INTEGER DEFAULT 0').run();
+} catch (e) {}
+try {
+  db.prepare('ALTER TABLE members ADD COLUMN training_digitalization INTEGER DEFAULT 0').run();
+} catch (e) {}
+try {
+  db.prepare('ALTER TABLE members ADD COLUMN training_creative_industries INTEGER DEFAULT 0').run();
+} catch (e) {}
+try {
+  db.prepare('ALTER TABLE members ADD COLUMN latitude REAL').run();
+} catch (e) {}
+try {
+  db.prepare('ALTER TABLE members ADD COLUMN longitude REAL').run();
+} catch (e) {}
+try {
+  db.prepare('ALTER TABLE members ADD COLUMN last_seen DATETIME').run();
+} catch (e) {}
+
+db.exec(`
   CREATE TABLE IF NOT EXISTS posts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     member_id INTEGER,
