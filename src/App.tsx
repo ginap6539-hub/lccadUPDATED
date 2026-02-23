@@ -50,6 +50,8 @@ import * as bcrypt from 'bcryptjs';
 
 // Helper for image uploads to Supabase Storage
 const uploadImage = async (file: File, bucket: string = 'lccad') => {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error("Supabase client is not initialized");
   const fileExt = file.name.split('.').pop();
   const fileName = `${Math.random()}.${fileExt}`;
   const filePath = `${fileName}`;
@@ -81,6 +83,9 @@ const LCCAD_FULL_NAME = "Local Climate Change Adaptation for Development";
 // --- Hooks ---
 
 const useGeolocation = (memberId?: number) => {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
   useEffect(() => {
     if (!memberId) return;
 
@@ -347,6 +352,9 @@ const LandingPage = () => {
 };
 
 const MessengerPage = ({ user }: { user: User }) => {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
   const [members, setMembers] = useState<Member[]>([]);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -496,9 +504,15 @@ const MessengerPage = ({ user }: { user: User }) => {
   );
 };
 
+import PromoteMemberModal from './components/PromoteMemberModal';
+
 const AdminDashboard = () => {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
   const [members, setMembers] = useState<Member[]>([]);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [promotingMember, setPromotingMember] = useState<Member | null>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'map' | 'list' | 'products' | 'messages'>('map');
   const [broadcastMsg, setBroadcastMsg] = useState('');
@@ -760,9 +774,12 @@ const AdminDashboard = () => {
                               <span className="text-[10px] font-bold uppercase tech-font">{member.latitude ? 'Active' : 'Offline'}</span>
                             </div>
                           </td>
-                          <td className="p-4">
+                          <td className="p-4 flex items-center gap-2">
                             <button onClick={() => setSelectedMember(member)} className="p-2 bg-zinc-100 rounded-lg hover:bg-[#1877F2] hover:text-white transition-all">
                               <Search size={16} />
+                            </button>
+                            <button onClick={() => setPromotingMember(member)} className="p-2 bg-zinc-100 rounded-lg hover:bg-emerald-500 hover:text-white transition-all">
+                              <Shield size={16} />
                             </button>
                           </td>
                         </tr>
@@ -963,6 +980,12 @@ const AdminDashboard = () => {
             </motion.div>
           )}
         </AnimatePresence>
+
+        <AnimatePresence>
+          {promotingMember && (
+            <PromoteMemberModal member={promotingMember} onClose={() => setPromotingMember(null)} />
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -1062,6 +1085,9 @@ const ProfileModal = ({ member, onClose, onUpdate }: { member: Member, onClose: 
 };
 
 const MemberFeed = ({ member, onUpdate }: { member: Member, onUpdate: (m: Member) => void }) => {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
   const [posts, setPosts] = useState<Post[]>([]);
   const [newPostContent, setNewPostContent] = useState('');
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -1237,6 +1263,9 @@ const MemberFeed = ({ member, onUpdate }: { member: Member, onUpdate: (m: Member
 };
 
 const RegistrationPage = () => {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
   const [formData, setFormData] = useState({
     name: '', address: '', position: '', agency_lgu: '', province_region: '',
     mobile_number: '', email: '', website: '',
@@ -1421,6 +1450,9 @@ const RegistrationPage = () => {
 };
 
 const LoginPage = ({ onLogin }: { onLogin: (user: User) => void }) => {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
