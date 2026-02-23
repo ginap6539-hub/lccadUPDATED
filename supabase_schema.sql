@@ -89,12 +89,19 @@ ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 -- on the backend to bypass RLS, and keep RLS restricted for the ANON key.
 -- These policies allow basic operations required for the app to function.
 
+DROP POLICY IF EXISTS "Allow all on admins" ON admins;
 CREATE POLICY "Allow all on admins" ON admins FOR ALL USING (true);
+DROP POLICY IF EXISTS "Allow all on members" ON members;
 CREATE POLICY "Allow all on members" ON members FOR ALL USING (true);
+DROP POLICY IF EXISTS "Allow all on posts" ON posts;
 CREATE POLICY "Allow all on posts" ON posts FOR ALL USING (true);
+DROP POLICY IF EXISTS "Allow all on reactions" ON reactions;
 CREATE POLICY "Allow all on reactions" ON reactions FOR ALL USING (true);
+DROP POLICY IF EXISTS "Allow all on products" ON products;
 CREATE POLICY "Allow all on products" ON products FOR ALL USING (true);
+DROP POLICY IF EXISTS "Allow all on messages" ON messages;
 CREATE POLICY "Allow all on messages" ON messages FOR ALL USING (true);
+DROP POLICY IF EXISTS "Allow all on notifications" ON notifications;
 CREATE POLICY "Allow all on notifications" ON notifications FOR ALL USING (true);
 
 -- Seed Admin User (Password: admin123)
