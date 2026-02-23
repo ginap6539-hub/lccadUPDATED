@@ -12,4 +12,4 @@ export const getSupabase = () => {
   return supabaseClient;
 };
 
-export const supabase = getSupabase(); // For backward compatibility, might be null
+

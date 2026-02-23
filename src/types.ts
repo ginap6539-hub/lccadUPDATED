@@ -21,11 +21,11 @@ export interface Member {
 export interface Post {
   id: number;
   member_id: number;
-  member_name: string;
   content: string;
   image_url?: string;
   created_at: string;
   reactions?: number;
+  member: Member;
 }
 
 export interface Product {
