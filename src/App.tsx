@@ -43,7 +43,28 @@ import { motion, AnimatePresence } from 'motion/react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { Member, Post, Product, Message, User } from './types';
-import socket, { subscribeToAdminNotifications, subscribeToPosts, subscribeToMessages, joinUserRoom } from './services/api';
+import { supabase } from './supabaseClient';
+import { subscribeToAdminNotifications, subscribeToPosts, subscribeToMessages, joinUserRoom } from './services/api';
+import bcrypt from 'bcryptjs';
+
+// Helper for image uploads to Supabase Storage
+const uploadImage = async (file: File, bucket: string = 'lccad') => {
+  const fileExt = file.name.split('.').pop();
+  const fileName = `${Math.random()}.${fileExt}`;
+  const filePath = `${fileName}`;
+
+  const { error: uploadError, data } = await supabase.storage
+    .from(bucket)
+    .upload(filePath, file);
+
+  if (uploadError) throw uploadError;
+
+  const { data: { publicUrl } } = supabase.storage
+    .from(bucket)
+    .getPublicUrl(filePath);
+
+  return publicUrl;
+};
 
 // Fix Leaflet default icon
 const DefaultIcon = L.icon({
@@ -62,13 +83,16 @@ const useGeolocation = (memberId?: number) => {
   useEffect(() => {
     if (!memberId) return;
 
-    const updateLocation = (position: GeolocationPosition) => {
+    const updateLocation = async (position: GeolocationPosition) => {
       const { latitude, longitude } = position.coords;
-      fetch(`/api/members/${memberId}/location`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ latitude, longitude }),
-      }).catch(err => console.error('Failed to update location:', err));
+      try {
+        await supabase
+          .from('members')
+          .update({ latitude, longitude, last_seen: new Date().toISOString() })
+          .eq('id', memberId);
+      } catch (err) {
+        console.error('Failed to update location:', err);
+      }
     };
 
     const intervalId = setInterval(() => {
@@ -329,8 +353,8 @@ const MessengerPage = ({ user }: { user: User }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch('/api/members').then(res => res.json()).then(m => {
-      setMembers(m.filter((mem: Member) => mem.id !== user.id));
+    supabase.from('members').select('*').then(({ data }) => {
+      if (data) setMembers(data.filter((mem: Member) => mem.id !== user.id));
     });
 
     const cleanup = subscribeToMessages((msg) => {
@@ -344,9 +368,14 @@ const MessengerPage = ({ user }: { user: User }) => {
 
   useEffect(() => {
     if (selectedMember) {
-      fetch(`/api/messages/${user.id}/${selectedMember.id}`)
-        .then(res => res.json())
-        .then(setMessages);
+      supabase
+        .from('messages')
+        .select('*')
+        .or(`and(sender_id.eq.${user.id},receiver_id.eq.${selectedMember.id}),and(sender_id.eq.${selectedMember.id},receiver_id.eq.${user.id}),receiver_id.eq.0`)
+        .order('created_at', { ascending: true })
+        .then(({ data }) => {
+          if (data) setMessages(data);
+        });
     }
   }, [selectedMember, user.id]);
 
@@ -356,13 +385,13 @@ const MessengerPage = ({ user }: { user: User }) => {
 
   const sendMessage = async () => {
     if (!newMessage || !selectedMember) return;
-    const res = await fetch('/api/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sender_id: user.id, receiver_id: selectedMember.id, content: newMessage }),
-    });
-    if (res.ok) {
-      const msg = await res.json();
+    const { data: msg, error } = await supabase
+      .from('messages')
+      .insert([{ sender_id: user.id, receiver_id: selectedMember.id, content: newMessage }])
+      .select()
+      .single();
+    
+    if (!error && msg) {
       setMessages(prev => [...prev, msg]);
       setNewMessage('');
     }
@@ -488,8 +517,8 @@ const AdminDashboard = () => {
   }, [location]);
 
   useEffect(() => {
-    fetch('/api/members').then(res => res.json()).then(setMembers);
-    fetch('/api/products').then(res => res.json()).then(setProducts);
+    supabase.from('members').select('*').then(({ data }) => { if (data) setMembers(data); });
+    supabase.from('products').select('*').then(({ data }) => { if (data) setProducts(data); });
     
     const cleanupNotif = subscribeToAdminNotifications((notif) => {
       setNotifications(prev => [notif, ...prev]);
@@ -503,47 +532,64 @@ const AdminDashboard = () => {
       }
     });
 
-    const cleanupLocation = socket.on('location-update', (updatedMember: Member) => {
-      setMembers(prev => prev.map(m => m.id === updatedMember.id ? updatedMember : m));
-    });
-
-    const cleanupProduct = socket.on('product-update', (updatedProduct: Product) => {
-      setProducts(prev => {
-        const exists = prev.find(p => p.id === updatedProduct.id);
-        if (exists) {
-          return prev.map(p => p.id === updatedProduct.id ? updatedProduct : p);
-        }
-        return [updatedProduct, ...prev];
-      });
-    });
+    const channel = supabase
+      .channel('admin-updates')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'members' }, (payload) => {
+        setMembers(prev => prev.map(m => m.id === payload.new.id ? payload.new as Member : m));
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'products' }, (payload) => {
+        setProducts(prev => prev.map(p => p.id === payload.new.id ? payload.new as Product : p));
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'products' }, (payload) => {
+        setProducts(prev => [payload.new as Product, ...prev]);
+      })
+      .subscribe();
 
     return () => {
       cleanupNotif();
-      socket.off('location-update');
-      socket.off('product-update');
+      supabase.removeChannel(channel);
     };
   }, []);
 
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    const formData = new FormData();
-    formData.append('name', newProduct.name);
-    formData.append('description', newProduct.description);
-    formData.append('price', newProduct.price);
-    formData.append('stock', newProduct.stock);
-    if (productImage) formData.append('image', productImage);
+    try {
+      let image_url = null;
+      if (productImage) {
+        image_url = await uploadImage(productImage);
+      }
 
-    const res = await fetch('/api/admin/products', {
-      method: 'POST',
-      body: formData,
-    });
+      const { data: product, error } = await supabase
+        .from('products')
+        .insert([{ 
+          name: newProduct.name, 
+          description: newProduct.description, 
+          price: Number(newProduct.price), 
+          stock: Number(newProduct.stock), 
+          image_url 
+        }])
+        .select()
+        .single();
 
-    if (res.ok) {
-      const data = await res.json();
-      setProducts(prev => [...prev, { ...newProduct, id: data.id, price: Number(newProduct.price), stock: Number(newProduct.stock) } as any]);
+      if (error) throw error;
+
+      if (product && product.stock === 0) {
+        await supabase.channel('admin-notifications').send({
+          type: 'broadcast',
+          event: 'admin-notification',
+          payload: {
+            type: 'STOCK_ALERT',
+            message: `CRITICAL: Product "${product.name}" is OUT OF STOCK!`,
+            data: { productId: product.id, name: product.name }
+          }
+        });
+      }
+
       setNewProduct({ name: '', description: '', price: '', stock: '' });
       setProductImage(null);
       alert('Product added successfully!');
+    } catch (err: any) {
+      alert(err.message);
     }
   };
 
@@ -551,45 +597,67 @@ const AdminDashboard = () => {
     e.preventDefault();
     if (!editingProduct) return;
 
-    const formData = new FormData();
-    formData.append('name', editingProduct.name);
-    formData.append('description', editingProduct.description);
-    formData.append('price', editingProduct.price.toString());
-    formData.append('stock', editingProduct.stock.toString());
-    if (productImage) formData.append('image', productImage);
+    try {
+      let image_url = editingProduct.image_url;
+      if (productImage) {
+        image_url = await uploadImage(productImage);
+      }
 
-    const res = await fetch(`/api/admin/products/${editingProduct.id}`, {
-      method: 'PUT',
-      body: formData,
-    });
+      const { error } = await supabase
+        .from('products')
+        .update({
+          name: editingProduct.name,
+          description: editingProduct.description,
+          price: Number(editingProduct.price),
+          stock: Number(editingProduct.stock),
+          image_url
+        })
+        .eq('id', editingProduct.id);
 
-    if (res.ok) {
+      if (error) throw error;
+
       setEditingProduct(null);
       setProductImage(null);
       alert('Product updated successfully!');
+    } catch (err: any) {
+      alert(err.message);
     }
   };
 
   const updateStock = async (id: number, newStock: number) => {
-    const res = await fetch(`/api/admin/products/${id}/stock`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stock: newStock }),
-    });
-    if (res.ok) {
+    const { data: product, error } = await supabase
+      .from('products')
+      .update({ stock: newStock })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (!error && product) {
       setProducts(prev => prev.map(p => p.id === id ? { ...p, stock: newStock } : p));
+      if (newStock === 0) {
+        await supabase.channel('admin-notifications').send({
+          type: 'broadcast',
+          event: 'admin-notification',
+          payload: {
+            type: 'STOCK_ALERT',
+            message: `CRITICAL: Product "${product.name}" is OUT OF STOCK!`,
+            data: { productId: id, name: product.name }
+          }
+        });
+      }
     }
   };
 
   const sendBroadcast = async () => {
     if (!broadcastMsg) return;
-    await fetch('/api/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sender_id: 0, receiver_id: 0, content: broadcastMsg }),
-    });
-    setBroadcastMsg('');
-    alert('Broadcast sent to all members!');
+    const { error } = await supabase
+      .from('messages')
+      .insert([{ sender_id: 0, receiver_id: 0, content: broadcastMsg }]);
+    
+    if (!error) {
+      setBroadcastMsg('');
+      alert('Broadcast sent to all members!');
+    }
   };
 
   return (
@@ -907,22 +975,39 @@ const ProfileModal = ({ member, onClose, onUpdate }: { member: Member, onClose: 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const data = new FormData();
-    Object.entries(formData).forEach(([key, value]) => {
-      if (value !== null && value !== undefined) data.append(key, value.toString());
-    });
-    if (photo) data.append('photo', photo);
+    
+    try {
+      let photo_url = formData.photo_url;
+      if (photo) {
+        photo_url = await uploadImage(photo);
+      }
 
-    const res = await fetch(`/api/members/${member.id}/profile`, {
-      method: 'POST',
-      body: data
-    });
-    if (res.ok) {
-      const updated = await res.json();
-      onUpdate(updated);
-      onClose();
+      const { data: updated, error } = await supabase
+        .from('members')
+        .update({
+          name: formData.name,
+          address: formData.address,
+          position: formData.position,
+          agency_lgu: formData.agency_lgu,
+          province_region: formData.province_region,
+          mobile_number: formData.mobile_number,
+          website: formData.website,
+          photo_url
+        })
+        .eq('id', member.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      if (updated) {
+        onUpdate(updated);
+        onClose();
+      }
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -985,7 +1070,21 @@ const MemberFeed = ({ member, onUpdate }: { member: Member, onUpdate: (m: Member
   useGeolocation(member.id);
 
   useEffect(() => {
-    fetch('/api/posts').then(res => res.json()).then(setPosts);
+    supabase
+      .from('posts')
+      .select('*, members(name, photo_url)')
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        if (data) {
+          const formatted = data.map(p => ({ 
+            ...p, 
+            member_name: (p as any).members?.name,
+            photo_url: (p as any).members?.photo_url 
+          }));
+          setPosts(formatted);
+        }
+      });
+
     joinUserRoom(member.id);
 
     const cleanupPosts = subscribeToPosts((post) => {
@@ -999,15 +1098,35 @@ const MemberFeed = ({ member, onUpdate }: { member: Member, onUpdate: (m: Member
 
   const handlePost = async () => {
     if (!newPostContent && !selectedImage) return;
-    const formData = new FormData();
-    formData.append('member_id', member.id.toString());
-    formData.append('content', newPostContent);
-    if (selectedImage) formData.append('image', selectedImage);
+    
+    try {
+      let image_url = null;
+      if (selectedImage) {
+        image_url = await uploadImage(selectedImage);
+      }
 
-    const res = await fetch('/api/posts', { method: 'POST', body: formData });
-    if (res.ok) {
-      setNewPostContent('');
-      setSelectedImage(null);
+      const { data: post, error } = await supabase
+        .from('posts')
+        .insert([{ member_id: member.id, content: newPostContent, image_url }])
+        .select('*, members(name, photo_url)')
+        .single();
+
+      if (error) throw error;
+
+      if (post) {
+        const formatted = { 
+          ...post, 
+          member_name: (post as any).members?.name,
+          photo_url: (post as any).members?.photo_url 
+        };
+        // The subscription will handle adding it to the feed for others, 
+        // but we can add it locally for immediate feedback
+        setPosts(prev => [formatted, ...prev]);
+        setNewPostContent('');
+        setSelectedImage(null);
+      }
+    } catch (err: any) {
+      alert(err.message);
     }
   };
 
@@ -1129,29 +1248,58 @@ const RegistrationPage = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setStatus('loading');
-    const data = new FormData();
-    Object.entries(formData).forEach(([key, value]) => {
-      data.append(key, value.toString());
-    });
-    if (photo) data.append('photo', photo);
-
+    
     try {
-      const res = await fetch('/api/register', {
-        method: 'POST',
-        body: data,
-      });
-      const result = await res.json();
-      
-      if (res.ok) {
-        setStatus('success');
-        setTimeout(() => navigate('/login'), 2000);
-      } else {
-        setStatus('error');
-        alert(result.error || 'Registration failed. Please try again.');
+      let photo_url = null;
+      if (photo) {
+        photo_url = await uploadImage(photo);
       }
-    } catch (err) {
+
+      const { data: existingMember } = await supabase
+        .from('members')
+        .select('id')
+        .eq('email', formData.email)
+        .maybeSingle();
+
+      if (existingMember) {
+        setStatus('error');
+        alert('Email already registered');
+        return;
+      }
+
+      const { data: member, error } = await supabase
+        .from('members')
+        .insert([{
+          ...formData,
+          photo_url,
+          training_climate_change: formData.training_climate_change ? 1 : 0,
+          training_digitalization: formData.training_digitalization ? 1 : 0,
+          training_creative_industries: formData.training_creative_industries ? 1 : 0
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (member) {
+        // Broadcast new registration
+        await supabase.channel('admin-notifications').send({
+          type: 'broadcast',
+          event: 'admin-notification',
+          payload: {
+            type: 'NEW_REGISTRATION',
+            message: `New member registered: ${member.name}`,
+            data: member
+          }
+        });
+      }
+
+      setStatus('success');
+      setTimeout(() => navigate('/login'), 2000);
+    } catch (err: any) {
+      console.error('Registration error:', err);
       setStatus('error');
-      alert('An unexpected error occurred.');
+      alert(err.message || 'An unexpected error occurred.');
     }
   };
 
@@ -1284,19 +1432,42 @@ const LoginPage = ({ onLogin }: { onLogin: (user: User) => void }) => {
     setLoading(true);
     
     try {
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        onLogin(data.user);
-        navigate(data.user.role === 'admin' ? '/admin' : '/');
-      } else {
-        setError('Invalid email or password');
+      const trimmedEmail = email.trim();
+      
+      // Try Admin
+      const { data: admin, error: adminError } = await supabase
+        .from('admins')
+        .select('*')
+        .eq('username', trimmedEmail)
+        .maybeSingle();
+
+      if (admin && admin.password) {
+        const match = bcrypt.compareSync(password, admin.password);
+        if (match) {
+          const user = { id: admin.id, username: admin.username, name: 'Admin', role: 'admin' as const };
+          onLogin(user);
+          navigate('/admin');
+          return;
+        }
       }
-    } catch (err) {
+
+      // Try Member
+      const { data: member, error: memberError } = await supabase
+        .from('members')
+        .select('*')
+        .eq('email', trimmedEmail)
+        .maybeSingle();
+
+      if (member) {
+        const user = { ...member, role: 'member' as const };
+        onLogin(user);
+        navigate('/');
+        return;
+      }
+
+      setError('Invalid email or password');
+    } catch (err: any) {
+      console.error('Login error:', err);
       setError('An error occurred. Please try again.');
     } finally {
       setLoading(false);

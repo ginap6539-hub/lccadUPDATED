@@ -1,28 +1,51 @@
-import { io } from 'socket.io-client';
-
-const socket = io(window.location.origin);
+import { supabase } from '../supabaseClient';
 
 export const subscribeToAdminNotifications = (callback: (data: any) => void) => {
-  socket.on('admin-notification', callback);
-  return () => socket.off('admin-notification', callback);
+  const channel = supabase
+    .channel('admin-notifications')
+    .on('broadcast', { event: 'admin-notification' }, (payload) => callback(payload.payload))
+    .subscribe();
+  
+  return () => {
+    supabase.removeChannel(channel);
+  };
 };
 
 export const subscribeToPosts = (callback: (post: any) => void) => {
-  socket.on('new-post', callback);
-  return () => socket.off('new-post', callback);
+  const channel = supabase
+    .channel('posts-channel')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, async (payload) => {
+      // Fetch member name for the new post
+      const { data: member } = await supabase
+        .from('members')
+        .select('name')
+        .eq('id', payload.new.member_id)
+        .single();
+      
+      callback({ ...payload.new, member_name: member?.name });
+    })
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
 };
 
 export const subscribeToMessages = (callback: (msg: any) => void) => {
-  socket.on('broadcast-message', callback);
-  socket.on('private-message', callback);
+  const channel = supabase
+    .channel('messages-channel')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+      callback(payload.new);
+    })
+    .subscribe();
+
   return () => {
-    socket.off('broadcast-message', callback);
-    socket.off('private-message', callback);
+    supabase.removeChannel(channel);
   };
 };
 
 export const joinUserRoom = (userId: number) => {
-  socket.emit('join', userId);
+  // Supabase Realtime handles this differently
 };
 
-export default socket;
+export default supabase;
