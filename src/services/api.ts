@@ -1,4 +1,6 @@
-import { supabase } from '../supabaseClient';
+import { getSupabase } from '../supabaseClient';
+
+const supabase = getSupabase();
 
 export const subscribeToAdminNotifications = (callback: (data: any) => void) => {
   const channel = supabase
@@ -48,4 +50,4 @@ export const joinUserRoom = (userId: number) => {
   // Supabase Realtime handles this differently
 };
 
-export default supabase;
+export default getSupabase; // Export the getter instead

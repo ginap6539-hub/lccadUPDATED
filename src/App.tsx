@@ -43,7 +43,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { Member, Post, Product, Message, User } from './types';
-import { supabase } from './supabaseClient';
+import { getSupabase, supabaseUrl, supabaseAnonKey } from './supabaseClient';
+const supabase = getSupabase();
+import SupabaseSetupInstructions from './components/SupabaseSetupInstructions';
 import { subscribeToAdminNotifications, subscribeToPosts, subscribeToMessages, joinUserRoom } from './services/api';
 import bcrypt from 'bcryptjs';
 
@@ -1547,6 +1549,10 @@ export default function App() {
     setUser(updatedUser);
     localStorage.setItem('user', JSON.stringify(updatedUser));
   };
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return <SupabaseSetupInstructions />;
+  }
 
   if (loading) return null;
 
