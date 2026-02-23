@@ -46,7 +46,7 @@ import { Member, Post, Product, Message, User } from './types';
 import { getSupabase } from './supabaseClient';
 const supabase = getSupabase();
 import { subscribeToAdminNotifications, subscribeToPosts, subscribeToMessages, joinUserRoom } from './services/api';
-import bcrypt from 'bcryptjs';
+import * as bcrypt from 'bcryptjs';
 
 // Helper for image uploads to Supabase Storage
 const uploadImage = async (file: File, bucket: string = 'lccad') => {
