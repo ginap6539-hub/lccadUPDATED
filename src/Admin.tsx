@@ -94,6 +94,15 @@ const Avatar = ({ src, name, size = "md", online = false }: { src?: string, name
 
 const AdminDashboard = () => {
   const supabase = getSupabase();
+  if (!supabase) return (
+    <div className="min-h-screen bg-[#f0f2f5] flex items-center justify-center p-4">
+      <div className="bg-white p-8 rounded-xl shadow-2xl border border-zinc-200 max-w-md w-full text-center">
+        <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+        <h1 className="text-2xl font-bold text-zinc-900 mb-2">Configuration Missing</h1>
+        <p className="text-zinc-600 mb-6">Supabase URL or Anon Key is not configured. Please check your environment variables.</p>
+      </div>
+    </div>
+  );
 
   const [members, setMembers] = useState<Member[]>([]);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);

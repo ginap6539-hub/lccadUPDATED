@@ -1,8 +1,8 @@
 import { getSupabase } from '../supabaseClient';
 
-const supabase = getSupabase();
-
 export const subscribeToAdminNotifications = (callback: (data: any) => void) => {
+  const supabase = getSupabase();
+  if (!supabase) return () => {};
   const channel = supabase
     .channel('admin-notifications')
     .on('broadcast', { event: 'admin-notification' }, (payload) => callback(payload.payload))
@@ -14,6 +14,8 @@ export const subscribeToAdminNotifications = (callback: (data: any) => void) => 
 };
 
 export const subscribeToPosts = (callback: (post: any) => void) => {
+  const supabase = getSupabase();
+  if (!supabase) return () => {};
   const channel = supabase
     .channel('posts-channel')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, async (payload) => {
@@ -34,6 +36,8 @@ export const subscribeToPosts = (callback: (post: any) => void) => {
 };
 
 export const subscribeToMessages = (callback: (msg: any) => void) => {
+  const supabase = getSupabase();
+  if (!supabase) return () => {};
   const channel = supabase
     .channel('messages-channel')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {

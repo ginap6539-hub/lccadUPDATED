@@ -45,7 +45,6 @@ import L from 'leaflet';
 import { Member, Post, Product, Message, User } from './types';
 import { getSupabase } from './supabaseClient';
 import { subscribeToAdminNotifications, subscribeToPosts, subscribeToMessages, joinUserRoom } from './services/api';
-import * as bcrypt from 'bcryptjs';
 import AdminDashboard from './Admin';
 
 // Helper for image uploads to Supabase Storage
@@ -614,7 +613,15 @@ const MemberFeed = ({ user }: { user: User }) => {
 
 const LoginPage = ({ onLogin }: { onLogin: (user: User) => void }) => {
   const supabase = getSupabase();
-  if (!supabase) return null;
+  if (!supabase) return (
+    <div className="min-h-screen bg-[#f0f2f5] flex items-center justify-center p-4">
+      <div className="bg-white p-8 rounded-xl shadow-2xl border border-zinc-200 max-w-md w-full text-center">
+        <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+        <h1 className="text-2xl font-bold text-zinc-900 mb-2">Configuration Missing</h1>
+        <p className="text-zinc-600 mb-6">Supabase URL or Anon Key is not configured. Please check your environment variables.</p>
+      </div>
+    </div>
+  );
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -632,11 +639,11 @@ const LoginPage = ({ onLogin }: { onLogin: (user: User) => void }) => {
         const { data: admin, error: adminError } = await supabase
           .from('admins')
           .select('*')
-          .eq('email', data.user.email)
+          .eq('username', data.user.email)
           .single();
         
         if (admin) {
-          onLogin({ ...data.user, id: admin.id, role: 'admin', name: admin.name, username: admin.username });
+          onLogin({ ...data.user, id: admin.id, role: 'admin', name: admin.username, username: admin.username });
           navigate('/admin');
         } else {
           const { data: member, error: memberError } = await supabase
@@ -698,7 +705,15 @@ const LoginPage = ({ onLogin }: { onLogin: (user: User) => void }) => {
 
 const RegistrationPage = () => {
   const supabase = getSupabase();
-  if (!supabase) return null;
+  if (!supabase) return (
+    <div className="min-h-screen bg-[#f0f2f5] flex items-center justify-center p-4">
+      <div className="bg-white p-8 rounded-xl shadow-2xl border border-zinc-200 max-w-md w-full text-center">
+        <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+        <h1 className="text-2xl font-bold text-zinc-900 mb-2">Configuration Missing</h1>
+        <p className="text-zinc-600 mb-6">Supabase URL or Anon Key is not configured. Please check your environment variables.</p>
+      </div>
+    </div>
+  );
 
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
@@ -726,7 +741,7 @@ const RegistrationPage = () => {
       }
 
       const { error: insertError } = await supabase.from('members').insert([
-        { name, username, email, position, photo_url, user_id: user.id }
+        { name, username, email, position, photo_url }
       ]);
 
       if (insertError) throw insertError;
@@ -786,7 +801,7 @@ const RegistrationPage = () => {
   );
 };
 
-const ProtectedRoute = ({ user, role, children }: { user: User | null, role: 'admin' | 'member', children: JSX.Element }) => {
+const ProtectedRoute = ({ user, role, children }: { user: User | null, role: 'admin' | 'member', children: React.ReactNode }) => {
   if (!user) {
     return <Navigate to="/login" replace />;
   }
@@ -810,9 +825,9 @@ function App() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         // Check if admin
-        const { data: admin } = await supabase.from('admins').select('*').eq('email', session.user.email).single();
+        const { data: admin } = await supabase.from('admins').select('*').eq('username', session.user.email).single();
         if (admin) {
-          setUser({ ...session.user, id: admin.id, role: 'admin', name: admin.name, username: admin.username });
+          setUser({ ...session.user, id: admin.id, role: 'admin', name: admin.username, username: admin.username });
         } else {
           const { data: member } = await supabase.from('members').select('*').eq('email', session.user.email).single();
           if (member) {
